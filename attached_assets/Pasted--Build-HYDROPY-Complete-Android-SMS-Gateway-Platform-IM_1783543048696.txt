@@ -1,0 +1,504 @@
+# Build HYDROPY - Complete Android SMS Gateway Platform
+
+## IMPORTANT
+
+Build a complete working product.
+
+Do not build only a demo.
+
+The final project must include:
+
+1. Web dashboard
+2. Backend server
+3. Database
+4. Native Android Gateway APK source code
+5. APK build output
+6. Complete documentation
+
+The system should be easy to install and operate.
+
+---
+
+# PRODUCT PURPOSE
+
+HYDROPY is a private SMS gateway management platform.
+
+The web dashboard is the main control center.
+
+Android phones connect to the platform and act as SMS gateway devices.
+
+The user installs the HYDROPY Gateway APK on Android phones, connects them once, and then manages everything from the dashboard.
+
+---
+
+# IMPORTANT MOBILE REQUIREMENT
+
+DO NOT USE:
+
+* Expo
+* React Native
+* Flutter
+* Ionic
+* Capacitor
+
+The Android application must be:
+
+* Native Kotlin Android
+* Android Studio compatible
+* Gradle project
+
+The repository must contain:
+
+```
+android-gateway/
+```
+
+with a complete Android Studio project.
+
+The project must be capable of generating:
+
+```
+HYDROPY-Gateway.apk
+```
+
+The APK should be ready for installation.
+
+---
+
+# USER EXPERIENCE GOAL
+
+The whole system should be simple:
+
+## Step 1
+
+Open dashboard.
+
+## Step 2
+
+Download APK from dashboard.
+
+Example:
+
+```
+Devices
+   |
+   |
+Download Gateway APK
+```
+
+## Step 3
+
+Install APK on Android phone.
+
+## Step 4
+
+Open APK.
+
+The app shows:
+
+```
+HYDROPY Gateway
+
+Server:
+https://your-server.com
+
+Pair Code:
+
+XXXXXX
+
+[CONNECT DEVICE]
+```
+
+## Step 5
+
+Device connects.
+
+Dashboard shows:
+
+```
+Device Online
+
+Ready for SMS
+```
+
+After that no regular interaction should be required.
+
+---
+
+# DASHBOARD FEATURES
+
+Create a professional dashboard.
+
+---
+
+# Main Dashboard
+
+Show:
+
+* Total devices
+* Online devices
+* Offline devices
+* SMS sent today
+* Pending SMS
+* Failed SMS
+* Active campaigns
+* System health
+
+---
+
+# Device Management
+
+Page:
+
+```
+Devices
+```
+
+Display:
+
+* Device name
+* Device ID
+* Online status
+* Battery
+* Android version
+* Phone model
+* SIM information
+* Signal strength
+* Last heartbeat
+* SMS count
+* Current task
+
+Actions:
+
+* View device
+* Send test SMS
+* Restart connection
+* Disable device
+* View logs
+* Diagnostics
+
+---
+
+# APK Management
+
+Create:
+
+```
+APK Manager
+```
+
+Features:
+
+* Download latest APK
+* Show APK version
+* Upload new APK
+* See installed versions
+
+---
+
+# Campaign System
+
+Create:
+
+```
+Campaigns
+```
+
+Features:
+
+* Create campaign
+* Upload CSV
+* Add message
+* Start campaign
+* Pause
+* Resume
+* Cancel
+
+Example:
+
+```
+Campaign:
+Marketing Offer
+
+Contacts:
+50000
+
+Devices:
+10
+
+Status:
+Running
+```
+
+---
+
+# SMS QUEUE
+
+Every SMS must have status:
+
+```
+CREATED
+
+QUEUED
+
+ASSIGNED
+
+SENT_TO_DEVICE
+
+SENDING
+
+SUCCESS
+
+FAILED
+```
+
+---
+
+# LIVE MONITORING
+
+Create real-time activity screen.
+
+Show:
+
+```
+Device connected
+
+Campaign started
+
+SMS assigned
+
+SMS sent
+
+SMS failed
+
+Device disconnected
+```
+
+---
+
+# ANDROID GATEWAY APP
+
+The APK is a gateway worker.
+
+It must include:
+
+## Connection
+
+* WebSocket client
+* Device authentication
+* Auto reconnect
+* Heartbeat
+
+## SMS
+
+Use Android SMS APIs.
+
+Features:
+
+* Receive SMS job
+* Send SMS
+* Report result
+
+## Background Service
+
+Implement:
+
+* Foreground service
+* Long-running connection
+* Recovery after disconnect
+
+## Device Information
+
+Send:
+
+* Battery
+* Signal
+* Network
+* Android version
+* Device model
+* Storage
+
+## Local Storage
+
+Use local database.
+
+Store:
+
+* Pending messages
+* Configuration
+* Logs
+
+---
+
+# BACKEND
+
+Use:
+
+* Node.js
+* TypeScript
+* PostgreSQL
+* Redis
+* WebSocket
+
+Services:
+
+```
+API Server
+
+Device Manager
+
+Campaign Engine
+
+Queue Worker
+
+WebSocket Server
+
+Logging Service
+```
+
+---
+
+# DEVICE COMMUNICATION
+
+Use WebSocket.
+
+Example:
+
+Server sends:
+
+```json
+{
+"type":"SEND_SMS",
+"number":"+911234567890",
+"message":"Hello"
+}
+```
+
+Device replies:
+
+```json
+{
+"type":"SMS_RESULT",
+"status":"SUCCESS"
+}
+```
+
+---
+
+# DATABASE
+
+Create:
+
+```
+devices
+
+device_sessions
+
+campaigns
+
+contacts
+
+sms_messages
+
+sms_logs
+
+device_logs
+
+system_logs
+
+app_versions
+```
+
+---
+
+# DEBUG AND PRODUCTION CONSOLE
+
+Create an admin monitoring area.
+
+Must show:
+
+## API Logs
+
+Requests and responses.
+
+## Device Logs
+
+Connection and errors.
+
+## WebSocket Logs
+
+Messages between server and devices.
+
+## System Health
+
+Check:
+
+* Database
+* Redis
+* Backend
+* Queue workers
+* Connected devices
+
+---
+
+# PROJECT STRUCTURE
+
+Create:
+
+```
+hydropy/
+
+frontend/
+
+backend/
+
+android-gateway/
+
+database/
+
+docs/
+```
+
+---
+
+# DEVELOPMENT RULES
+
+Build step by step.
+
+First create architecture.
+
+Then:
+
+1. Backend
+2. Database
+3. Android gateway
+4. Device connection
+5. SMS sending
+6. Campaign engine
+7. Dashboard
+8. Monitoring
+9. APK build system
+
+Do not create fake features.
+
+Do not use placeholder data.
+
+Everything should connect to real backend APIs.
+
+---
+
+# FINAL RESULT
+
+The finished application must allow:
+
+* Open dashboard
+* Download APK
+* Install APK
+* Connect Android device
+* See device online
+* Create SMS campaign
+* Send SMS
+* Monitor results
+* Debug problems
+
+The product should be simple, clean, and production-ready.

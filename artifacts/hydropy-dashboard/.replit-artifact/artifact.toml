@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "HYDROPY Dashboard"
+version = "1.0.0"
+id = "artifacts/hydropy-dashboard"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19444
+
+[services.development]
+run = "pnpm --filter @workspace/hydropy-dashboard run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/hydropy-dashboard", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/hydropy-dashboard/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19444"
+BASE_PATH = "/"

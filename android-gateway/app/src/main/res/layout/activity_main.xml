@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0a0e1a"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp"
+        android:gravity="center_horizontal">
+
+        <!-- Logo / Title -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="HYDROPY"
+            android:textSize="36sp"
+            android:textStyle="bold"
+            android:textColor="#00e5ff"
+            android:fontFamily="monospace"
+            android:layout_marginTop="40dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="SMS Gateway"
+            android:textSize="14sp"
+            android:textColor="#7b8ea0"
+            android:layout_marginBottom="48dp"/>
+
+        <!-- Status Card -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/card_bg"
+            android:padding="16dp"
+            android:orientation="vertical"
+            android:layout_marginBottom="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="STATUS"
+                android:textSize="10sp"
+                android:textColor="#4a5568"
+                android:letterSpacing="0.15"/>
+
+            <TextView
+                android:id="@+id/tvStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Disconnected"
+                android:textSize="18sp"
+                android:textColor="#e2e8f0"
+                android:layout_marginTop="4dp"/>
+
+            <TextView
+                android:id="@+id/tvDeviceId"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textSize="12sp"
+                android:textColor="#4a5568"
+                android:fontFamily="monospace"
+                android:layout_marginTop="4dp"/>
+        </LinearLayout>
+
+        <!-- Server URL -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/card_bg"
+            android:padding="16dp"
+            android:orientation="vertical"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="SERVER URL"
+                android:textSize="10sp"
+                android:textColor="#4a5568"
+                android:letterSpacing="0.15"/>
+
+            <EditText
+                android:id="@+id/etServer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="https://your-server.com"
+                android:textColor="#e2e8f0"
+                android:textColorHint="#4a5568"
+                android:background="@null"
+                android:inputType="textUri"
+                android:fontFamily="monospace"
+                android:textSize="14sp"
+                android:layout_marginTop="4dp"/>
+        </LinearLayout>
+
+        <!-- Pair Code -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/card_bg"
+            android:padding="16dp"
+            android:orientation="vertical"
+            android:layout_marginBottom="24dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="PAIR CODE"
+                android:textSize="10sp"
+                android:textColor="#4a5568"
+                android:letterSpacing="0.15"/>
+
+            <EditText
+                android:id="@+id/etPairCode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="XXXXXX"
+                android:textColor="#00e5ff"
+                android:textColorHint="#4a5568"
+                android:background="@null"
+                android:inputType="textCapCharacters"
+                android:fontFamily="monospace"
+                android:textSize="32sp"
+                android:textStyle="bold"
+                android:gravity="center"
+                android:letterSpacing="0.3"
+                android:layout_marginTop="4dp"/>
+        </LinearLayout>
+
+        <!-- Connect Button -->
+        <Button
+            android:id="@+id/btnConnect"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="CONNECT DEVICE"
+            android:textColor="#000000"
+            android:backgroundTint="#00e5ff"
+            android:textStyle="bold"
+            android:letterSpacing="0.1"
+            android:layout_marginBottom="12dp"/>
+
+        <Button
+            android:id="@+id/btnDisconnect"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="DISCONNECT"
+            android:textColor="#e2e8f0"
+            android:backgroundTint="#1e2433"
+            android:enabled="false"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Get the pair code from Dashboard > Devices > Download APK"
+            android:textSize="12sp"
+            android:textColor="#4a5568"
+            android:gravity="center"
+            android:layout_marginTop="24dp"
+            android:layout_marginBottom="40dp"/>
+
+    </LinearLayout>
+</ScrollView>

@@ -1,0 +1,1 @@
+- [HYDROPY platform](hydropy-platform.md) — full SMS gateway: Express/WS api-server, React NOC dashboard, Kotlin Android app, Drizzle/PG schema

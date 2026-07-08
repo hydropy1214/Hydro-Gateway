@@ -3,13 +3,30 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: HYDROPY SMS Gateway API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: dashboard
+    description: Dashboard statistics
+  - name: devices
+    description: Android gateway device management
+  - name: apk
+    description: APK version management
+  - name: campaigns
+    description: SMS campaign management
+  - name: sms
+    description: SMS message queue
+  - name: activity
+    description: Live activity monitoring
+  - name: logs
+    description: System and device logs
+  - name: system
+    description: System health and configuration
+
 paths:
   /healthz:
     get:
@@ -24,6 +41,611 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /dashboard/stats:
+    get:
+      operationId: getDashboardStats
+      tags: [dashboard]
+      summary: Get dashboard statistics
+      responses:
+        "200":
+          description: Dashboard stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
+  /devices:
+    get:
+      operationId: listDevices
+      tags: [devices]
+      summary: List all gateway devices
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [online, offline, all]
+      responses:
+        "200":
+          description: List of devices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Device"
+    post:
+      operationId: createDevice
+      tags: [devices]
+      summary: Register a new device (used by Android app pairing)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceInput"
+      responses:
+        "201":
+          description: Device registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+
+  /devices/{id}:
+    get:
+      operationId: getDevice
+      tags: [devices]
+      summary: Get a device by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Device details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateDevice
+      tags: [devices]
+      summary: Update device settings
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceUpdate"
+      responses:
+        "200":
+          description: Updated device
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+    delete:
+      operationId: deleteDevice
+      tags: [devices]
+      summary: Remove a device
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /devices/{id}/test-sms:
+    post:
+      operationId: sendTestSms
+      tags: [devices]
+      summary: Send a test SMS from a device
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TestSmsInput"
+      responses:
+        "200":
+          description: Test SMS dispatched
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActionResult"
+
+  /devices/{id}/restart:
+    post:
+      operationId: restartDevice
+      tags: [devices]
+      summary: Restart device connection
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Restart requested
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActionResult"
+
+  /devices/{id}/disable:
+    post:
+      operationId: disableDevice
+      tags: [devices]
+      summary: Disable a device
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Device disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActionResult"
+
+  /devices/{id}/logs:
+    get:
+      operationId: getDeviceLogs
+      tags: [devices]
+      summary: Get logs for a specific device
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Device logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DeviceLog"
+
+  /devices/pair:
+    post:
+      operationId: pairDevice
+      tags: [devices]
+      summary: Pair a device using a pair code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PairInput"
+      responses:
+        "200":
+          description: Device paired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairResult"
+
+  /devices/pair-code:
+    get:
+      operationId: generatePairCode
+      tags: [devices]
+      summary: Generate a new pair code for device connection
+      responses:
+        "200":
+          description: New pair code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairCodeResult"
+
+  /apk/versions:
+    get:
+      operationId: listApkVersions
+      tags: [apk]
+      summary: List all APK versions
+      responses:
+        "200":
+          description: List of APK versions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ApkVersion"
+
+  /apk/latest:
+    get:
+      operationId: getLatestApk
+      tags: [apk]
+      summary: Get the latest APK version info
+      responses:
+        "200":
+          description: Latest APK info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApkVersion"
+
+  /apk/{id}/download:
+    get:
+      operationId: downloadApk
+      tags: [apk]
+      summary: Download an APK by version ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: APK file download
+
+  /campaigns:
+    get:
+      operationId: listCampaigns
+      tags: [campaigns]
+      summary: List all campaigns
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of campaigns
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Campaign"
+    post:
+      operationId: createCampaign
+      tags: [campaigns]
+      summary: Create a new campaign
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CampaignInput"
+      responses:
+        "201":
+          description: Campaign created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+
+  /campaigns/{id}:
+    get:
+      operationId: getCampaign
+      tags: [campaigns]
+      summary: Get a campaign by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Campaign details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+    patch:
+      operationId: updateCampaign
+      tags: [campaigns]
+      summary: Update a campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CampaignUpdate"
+      responses:
+        "200":
+          description: Updated campaign
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+    delete:
+      operationId: deleteCampaign
+      tags: [campaigns]
+      summary: Delete a campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /campaigns/{id}/start:
+    post:
+      operationId: startCampaign
+      tags: [campaigns]
+      summary: Start a campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Campaign started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActionResult"
+
+  /campaigns/{id}/pause:
+    post:
+      operationId: pauseCampaign
+      tags: [campaigns]
+      summary: Pause a running campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Campaign paused
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActionResult"
+
+  /campaigns/{id}/resume:
+    post:
+      operationId: resumeCampaign
+      tags: [campaigns]
+      summary: Resume a paused campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Campaign resumed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActionResult"
+
+  /campaigns/{id}/cancel:
+    post:
+      operationId: cancelCampaign
+      tags: [campaigns]
+      summary: Cancel a campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Campaign cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActionResult"
+
+  /campaigns/{id}/contacts:
+    post:
+      operationId: uploadContacts
+      tags: [campaigns]
+      summary: Upload contacts CSV for a campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactsUpload"
+      responses:
+        "200":
+          description: Contacts uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContactsUploadResult"
+
+  /sms:
+    get:
+      operationId: listSmsMessages
+      tags: [sms]
+      summary: List SMS messages in the queue
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: campaign_id
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: SMS messages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SmsListResponse"
+    post:
+      operationId: sendSingleSms
+      tags: [sms]
+      summary: Send a single SMS immediately
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SingleSmsInput"
+      responses:
+        "201":
+          description: SMS queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SmsMessage"
+
+  /sms/{id}:
+    get:
+      operationId: getSmsMessage
+      tags: [sms]
+      summary: Get a specific SMS message
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: SMS message details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SmsMessage"
+
+  /activity:
+    get:
+      operationId: getActivity
+      tags: [activity]
+      summary: Get recent activity events
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Recent activity events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityEvent"
+
+  /logs/api:
+    get:
+      operationId: getApiLogs
+      tags: [logs]
+      summary: Get API request/response logs
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        "200":
+          description: API logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SystemLog"
+
+  /logs/websocket:
+    get:
+      operationId: getWebSocketLogs
+      tags: [logs]
+      summary: Get WebSocket message logs
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        "200":
+          description: WebSocket logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SystemLog"
+
+  /system/health:
+    get:
+      operationId: getSystemHealth
+      tags: [system]
+      summary: Get full system health status
+      responses:
+        "200":
+          description: System health
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemHealth"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +656,443 @@ components:
       required:
         - status
 
+    DashboardStats:
+      type: object
+      required:
+        - totalDevices
+        - onlineDevices
+        - offlineDevices
+        - smsSentToday
+        - smsPending
+        - smsFailed
+        - activeCampaigns
+        - totalCampaigns
+        - queuedMessages
+        - successRate
+      properties:
+        totalDevices:
+          type: integer
+        onlineDevices:
+          type: integer
+        offlineDevices:
+          type: integer
+        smsSentToday:
+          type: integer
+        smsPending:
+          type: integer
+        smsFailed:
+          type: integer
+        activeCampaigns:
+          type: integer
+        totalCampaigns:
+          type: integer
+        queuedMessages:
+          type: integer
+        successRate:
+          type: number
+
+    Device:
+      type: object
+      required:
+        - id
+        - name
+        - deviceId
+        - status
+        - createdAt
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        deviceId:
+          type: string
+        status:
+          type: string
+          enum: [online, offline, disabled]
+        battery:
+          type: ["integer", "null"]
+        androidVersion:
+          type: ["string", "null"]
+        phoneModel:
+          type: ["string", "null"]
+        simInfo:
+          type: ["string", "null"]
+        signalStrength:
+          type: ["integer", "null"]
+        lastHeartbeat:
+          type: ["string", "null"]
+        smsCount:
+          type: integer
+        currentTask:
+          type: ["string", "null"]
+        ipAddress:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: ["string", "null"]
+
+    DeviceInput:
+      type: object
+      required:
+        - name
+        - deviceId
+      properties:
+        name:
+          type: string
+        deviceId:
+          type: string
+        phoneModel:
+          type: string
+        androidVersion:
+          type: string
+
+    DeviceUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum: [online, offline, disabled]
+
+    TestSmsInput:
+      type: object
+      required:
+        - phoneNumber
+        - message
+      properties:
+        phoneNumber:
+          type: string
+        message:
+          type: string
+
+    PairInput:
+      type: object
+      required:
+        - pairCode
+        - deviceId
+        - phoneModel
+        - androidVersion
+      properties:
+        pairCode:
+          type: string
+        deviceId:
+          type: string
+        phoneModel:
+          type: string
+        androidVersion:
+          type: string
+        simInfo:
+          type: string
+
+    PairResult:
+      type: object
+      required:
+        - success
+        - deviceId
+        - token
+        - wsUrl
+      properties:
+        success:
+          type: boolean
+        deviceId:
+          type: integer
+        token:
+          type: string
+        wsUrl:
+          type: string
+
+    PairCodeResult:
+      type: object
+      required:
+        - pairCode
+        - expiresAt
+      properties:
+        pairCode:
+          type: string
+        expiresAt:
+          type: string
+
+    ApkVersion:
+      type: object
+      required:
+        - id
+        - version
+        - filename
+        - isLatest
+        - createdAt
+      properties:
+        id:
+          type: integer
+        version:
+          type: string
+        filename:
+          type: string
+        size:
+          type: ["integer", "null"]
+        isLatest:
+          type: boolean
+        downloadUrl:
+          type: string
+        changelog:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    Campaign:
+      type: object
+      required:
+        - id
+        - name
+        - status
+        - message
+        - totalContacts
+        - sentCount
+        - failedCount
+        - pendingCount
+        - createdAt
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        status:
+          type: string
+          enum: [draft, running, paused, completed, cancelled]
+        message:
+          type: string
+        totalContacts:
+          type: integer
+        sentCount:
+          type: integer
+        failedCount:
+          type: integer
+        pendingCount:
+          type: integer
+        assignedDevices:
+          type: integer
+        startedAt:
+          type: ["string", "null"]
+        completedAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: ["string", "null"]
+
+    CampaignInput:
+      type: object
+      required:
+        - name
+        - message
+      properties:
+        name:
+          type: string
+        message:
+          type: string
+
+    CampaignUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        message:
+          type: string
+
+    ContactsUpload:
+      type: object
+      required:
+        - contacts
+      properties:
+        contacts:
+          type: array
+          items:
+            type: object
+            required:
+              - phoneNumber
+            properties:
+              phoneNumber:
+                type: string
+              name:
+                type: string
+
+    ContactsUploadResult:
+      type: object
+      required:
+        - imported
+        - skipped
+      properties:
+        imported:
+          type: integer
+        skipped:
+          type: integer
+
+    SmsMessage:
+      type: object
+      required:
+        - id
+        - phoneNumber
+        - message
+        - status
+        - createdAt
+      properties:
+        id:
+          type: integer
+        campaignId:
+          type: ["integer", "null"]
+        deviceId:
+          type: ["integer", "null"]
+        phoneNumber:
+          type: string
+        message:
+          type: string
+        status:
+          type: string
+          enum: [CREATED, QUEUED, ASSIGNED, SENT_TO_DEVICE, SENDING, SUCCESS, FAILED]
+        errorMessage:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        sentAt:
+          type: ["string", "null"]
+        resultAt:
+          type: ["string", "null"]
+
+    SmsListResponse:
+      type: object
+      required:
+        - messages
+        - total
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/SmsMessage"
+        total:
+          type: integer
+
+    SingleSmsInput:
+      type: object
+      required:
+        - phoneNumber
+        - message
+      properties:
+        phoneNumber:
+          type: string
+        message:
+          type: string
+        deviceId:
+          type: integer
+
+    ActivityEvent:
+      type: object
+      required:
+        - id
+        - type
+        - message
+        - createdAt
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+          enum: [device_connected, device_disconnected, campaign_started, campaign_completed, sms_assigned, sms_sent, sms_failed, campaign_paused, campaign_resumed, device_error]
+        message:
+          type: string
+        deviceId:
+          type: ["integer", "null"]
+        deviceName:
+          type: ["string", "null"]
+        campaignId:
+          type: ["integer", "null"]
+        campaignName:
+          type: ["string", "null"]
+        metadata:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    DeviceLog:
+      type: object
+      required:
+        - id
+        - deviceId
+        - level
+        - message
+        - createdAt
+      properties:
+        id:
+          type: integer
+        deviceId:
+          type: integer
+        level:
+          type: string
+          enum: [info, warn, error, debug]
+        message:
+          type: string
+        data:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    SystemLog:
+      type: object
+      required:
+        - id
+        - level
+        - category
+        - message
+        - createdAt
+      properties:
+        id:
+          type: integer
+        level:
+          type: string
+          enum: [info, warn, error, debug]
+        category:
+          type: string
+        message:
+          type: string
+        data:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    SystemHealth:
+      type: object
+      required:
+        - database
+        - backend
+        - websocket
+        - queueWorker
+        - connectedDevices
+        - uptime
+      properties:
+        database:
+          type: string
+          enum: [healthy, degraded, down]
+        backend:
+          type: string
+          enum: [healthy, degraded, down]
+        websocket:
+          type: string
+          enum: [healthy, degraded, down]
+        queueWorker:
+          type: string
+          enum: [healthy, degraded, down]
+        connectedDevices:
+          type: integer
+        uptime:
+          type: number
+
+    ActionResult:
+      type: object
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
