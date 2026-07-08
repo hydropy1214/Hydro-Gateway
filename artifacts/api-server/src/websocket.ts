@@ -25,7 +25,8 @@ class HydroWss {
   private connections = new Map<string, DeviceConnection>();
 
   init(httpServer: Server) {
-    this.server = new WebSocketServer({ server: httpServer, path: "/ws" });
+    // Path must include the /api prefix because Replit's proxy routes /api/* → this server
+    this.server = new WebSocketServer({ server: httpServer, path: "/api/ws" });
 
     this.server.on("connection", (ws: WebSocket, req: IncomingMessage) => {
       const ip = (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim()
@@ -62,7 +63,7 @@ class HydroWss {
     });
 
     setInterval(() => this.checkHeartbeats(), 30_000);
-    logger.info("WebSocket server initialized at /ws");
+    logger.info("WebSocket server initialized at /api/ws");
   }
 
   /**
@@ -74,7 +75,10 @@ class HydroWss {
     ip: string,
     currentConn: DeviceConnection | null
   ): Promise<DeviceConnection | null | undefined> {
-    await this.logWs(msg.type as string, JSON.stringify(msg));
+    // Redact sensitive fields before logging
+    const safeMsg = { ...msg };
+    if (safeMsg.token) safeMsg.token = "[REDACTED]";
+    await this.logWs(msg.type as string, JSON.stringify(safeMsg));
 
     switch (msg.type) {
       case "AUTH": {

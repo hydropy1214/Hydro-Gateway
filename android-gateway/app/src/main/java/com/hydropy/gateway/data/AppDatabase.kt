@@ -32,7 +32,7 @@ data class LocalLog(
 
 @Dao
 interface PendingMessageDao {
-    @Query("SELECT * FROM pending_messages WHERE status = 'PENDING' ORDER BY createdAt ASC LIMIT 10")
+    @Query("SELECT * FROM pending_messages WHERE status = 'PENDING' ORDER BY createdAt ASC LIMIT 20")
     suspend fun getPending(): List<PendingMessage>
 
     @Insert
@@ -46,6 +46,14 @@ interface PendingMessageDao {
 
     @Query("SELECT COUNT(*) FROM pending_messages WHERE status = 'PENDING'")
     suspend fun pendingCount(): Int
+
+    /** Recover rows stuck in SENDING (e.g. service was killed mid-dispatch) → reset to PENDING */
+    @Query("UPDATE pending_messages SET status = 'PENDING', retryCount = retryCount + 1 WHERE status = 'SENDING'")
+    suspend fun recoverStuck(): Int
+
+    /** Fetch results that finished but may not have been reported to server yet */
+    @Query("SELECT * FROM pending_messages WHERE status IN ('SUCCESS','FAILED') AND resultAt > :since ORDER BY resultAt ASC LIMIT 50")
+    suspend fun getUnreported(since: Long): List<PendingMessage>
 
     @Query("DELETE FROM pending_messages WHERE createdAt < :cutoff")
     suspend fun cleanOld(cutoff: Long)

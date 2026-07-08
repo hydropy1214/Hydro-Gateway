@@ -27,7 +27,11 @@ app.use("/api", (req, res, next) => {
     // Dashboard fetches the derived API key on startup for self-configuration
     req.path === "/config" ||
     // Android app pairs using a short-lived pair code — no API key needed at this step
-    req.path === "/devices/pair";
+    req.path === "/devices/pair" ||
+    // APK downloads are public so anyone can install the gateway app without needing the API key.
+    // Only these two explicit paths are exempt — do NOT use suffix matching here.
+    req.path === "/apk/latest/download" ||
+    /^\/apk\/\d+\/download$/.test(req.path);
   if (isPublic) return next();
   return requireApiKey(req, res, next);
 }, router);

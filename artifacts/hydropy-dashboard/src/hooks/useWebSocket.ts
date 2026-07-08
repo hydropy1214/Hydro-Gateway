@@ -8,7 +8,8 @@ export function useWebSocket() {
 
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    // Must use /api/ws — Replit's proxy routes /api/* to the API server
+    const wsUrl = `${protocol}//${window.location.host}/api/ws`;
     
     let ws: WebSocket;
     let reconnectTimer: number;

@@ -4,10 +4,14 @@ import { appVersionsTable } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 
 const router = Router();
-const APK_DIR = path.resolve(process.cwd(), "apk-storage");
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// apk-storage lives alongside the compiled output (dist/ → parent is artifacts/api-server/)
+const APK_DIR = path.resolve(__dirname, "..", "apk-storage");
 if (!fs.existsSync(APK_DIR)) fs.mkdirSync(APK_DIR, { recursive: true });
+const PREBUILT_APK = path.join(APK_DIR, "HYDROPY-Gateway.apk");
 
 // List APK versions
 router.get("/versions", async (req, res) => {
@@ -37,16 +41,22 @@ router.get("/latest", async (req, res) => {
       .limit(1);
 
     if (!latest) {
-      // Return a placeholder if no APK has been uploaded
+      // No DB record yet — serve info derived from the pre-built APK on disk
+      const fileSize = fs.existsSync(PREBUILT_APK)
+        ? fs.statSync(PREBUILT_APK).size
+        : null;
+      const fileMtime = fs.existsSync(PREBUILT_APK)
+        ? fs.statSync(PREBUILT_APK).mtime.toISOString()
+        : new Date().toISOString();
       res.json({
         id: 0,
         version: "1.0.0",
         filename: "HYDROPY-Gateway.apk",
-        size: null,
+        size: fileSize,
         isLatest: true,
-        downloadUrl: "/api/apk/0/download",
-        changelog: "Initial release",
-        createdAt: new Date().toISOString(),
+        downloadUrl: "/api/apk/latest/download",
+        changelog: "• Fixed pairing WebSocket path (/api/ws)\n• Permissions requested at app launch\n• Bulk SMS worker with carrier rate limiting\n• SMS result buffering & replay on reconnect\n• Orphaned SENDING row recovery on restart\n• Multipart SMS single-callback fix\n• Exponential reconnect backoff",
+        createdAt: fileMtime,
       });
       return;
     }
@@ -58,21 +68,29 @@ router.get("/latest", async (req, res) => {
   }
 });
 
-// Download APK
+// Download latest APK (convenience alias used by the dashboard)
+router.get("/latest/download", (_req, res) => {
+  if (fs.existsSync(PREBUILT_APK)) {
+    res.setHeader("Content-Disposition", 'attachment; filename="HYDROPY-Gateway.apk"');
+    res.setHeader("Content-Type", "application/vnd.android.package-archive");
+    return res.sendFile(PREBUILT_APK);
+  }
+  res.status(404).json({ error: "APK file not found on server." });
+});
+
+// Download APK by id (id=0 → pre-built release)
 router.get("/:id/download", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
 
     if (id === 0) {
-      // Serve the pre-built APK from the android-gateway directory
-      const prebuiltPath = path.resolve(process.cwd(), "android-gateway", "app", "build", "outputs", "apk", "release", "HYDROPY-Gateway.apk");
-      if (fs.existsSync(prebuiltPath)) {
+      if (fs.existsSync(PREBUILT_APK)) {
         res.setHeader("Content-Disposition", 'attachment; filename="HYDROPY-Gateway.apk"');
         res.setHeader("Content-Type", "application/vnd.android.package-archive");
-        return res.sendFile(prebuiltPath);
+        return res.sendFile(PREBUILT_APK);
       }
-      res.status(404).json({ error: "APK not yet built. Build the Android project to generate the APK." });
-        return;
+      res.status(404).json({ error: "APK not yet built." });
+      return;
     }
 
     const [version] = await db

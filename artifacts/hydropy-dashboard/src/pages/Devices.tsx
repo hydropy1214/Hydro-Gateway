@@ -82,12 +82,16 @@ export default function Devices() {
               </DialogHeader>
               <div className="py-6 flex flex-col items-center justify-center space-y-4">
                 {generatePairCode.data ? (
-                  <div className="text-center space-y-4">
+                  <div className="text-center space-y-4 w-full">
                     <div className="text-5xl font-mono font-bold tracking-[0.5em] text-primary glow-primary py-4 px-8 border border-primary/30 rounded bg-primary/5">
                       {generatePairCode.data.pairCode}
                     </div>
+                    <div className="w-full p-3 bg-black/40 border border-border rounded text-left space-y-1">
+                      <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">Server URL</p>
+                      <p className="text-sm font-mono text-foreground break-all select-all">{window.location.origin}</p>
+                    </div>
                     <p className="text-sm font-mono text-muted-foreground">
-                      Enter this code in the Android app. Expires in 10 minutes.
+                      Enter both values in the Android app. Code expires in 10 minutes.
                     </p>
                   </div>
                 ) : (

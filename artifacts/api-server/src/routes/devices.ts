@@ -68,7 +68,7 @@ router.post("/pair", async (req, res) => {
 
     await db.update(pairCodesTable).set({ usedAt: new Date() }).where(eq(pairCodesTable.id, code.id));
 
-    res.json({ success: true, deviceId: device.id, token: authToken, wsUrl: "/ws" });
+    res.json({ success: true, deviceId: device.id, token: authToken, wsUrl: "/api/ws" });
   } catch (err) {
     req.log.error({ err }, "Failed to pair device");
     res.status(500).json({ error: "Failed to pair device" });

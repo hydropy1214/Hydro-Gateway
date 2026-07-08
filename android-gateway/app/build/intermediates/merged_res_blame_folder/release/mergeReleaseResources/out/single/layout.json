@@ -1,0 +1,10 @@
+[
+    {
+        "merged": "/tmp/gradle-home/daemon/8.7/com.hydropy.gateway.app-mergeReleaseResources-3:/layout/activity_main.xml",
+        "source": "/tmp/gradle-home/daemon/8.7/com.hydropy.gateway.app-main-5:/layout/activity_main.xml"
+    },
+    {
+        "merged": "com.hydropy.gateway.app-mergeReleaseResources-3:/layout/activity_main.xml",
+        "source": "com.hydropy.gateway.app-main-5:/layout/activity_main.xml"
+    }
+]
