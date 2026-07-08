@@ -46,13 +46,12 @@ class GatewayService : LifecycleService() {
 
     private val gson = Gson()
 
-    // Single long-lived OkHttpClient — never recreate, just open new WebSocket frames
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(0,  TimeUnit.MILLISECONDS)   // no idle timeout for persistent WS
+        .readTimeout(0,  TimeUnit.MILLISECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(false)           // self-managed reconnect with backoff
-        .pingInterval(20, TimeUnit.SECONDS)        // keeps connection alive through Replit proxy
+        .retryOnConnectionFailure(false)
+        .pingInterval(20, TimeUnit.SECONDS)
         .build()
 
     private var webSocket: WebSocket? = null
@@ -67,20 +66,16 @@ class GatewayService : LifecycleService() {
 
     private lateinit var db: AppDatabase
 
-    /**
-     * Buffer for SMS_RESULT payloads that could not be delivered while WebSocket was down.
-     * Flushed on the next successful AUTH_OK.
-     */
     private val pendingResults: MutableList<Map<String, Any?>> =
         Collections.synchronizedList(mutableListOf())
 
-    // ── SMS result receiver ───────────────────────────────────────────────────
+    // ── SMS sent result receiver ──────────────────────────────────────────────
 
     private val smsSentReceiver = object : BroadcastReceiver() {
         override fun onReceive(ctx: Context, intent: Intent) {
             val smsId = intent.getIntExtra("smsId", -1)
             val msgId = intent.getLongExtra("msgId", -1L)
-            if (msgId < 0L) return   // dummy intent from intermediate multipart segment — ignore
+            if (msgId < 0L) return
 
             val success = resultCode == Activity.RESULT_OK
             val status  = if (success) "SUCCESS" else "FAILED"
@@ -92,7 +87,6 @@ class GatewayService : LifecycleService() {
                 log("SMS #$smsId → $status")
                 updateNotification()
 
-                // Buffer the result; flush immediately if WS is up
                 if (smsId > 0) {
                     val payload = mapOf("type" to "SMS_RESULT", "smsId" to smsId,
                                         "status" to status, "error" to error)
@@ -126,7 +120,6 @@ class GatewayService : LifecycleService() {
         super.onStartCommand(intent, flags, startId)
         startForeground(NOTIFICATION_ID, buildNotification("Starting…"))
         lifecycleScope.launch {
-            // Recover rows stuck in SENDING from a prior crash — reset to PENDING for retry
             val recovered = withContext(Dispatchers.IO) {
                 runCatching { db.pendingMessageDao().recoverStuck() }.getOrDefault(0)
             }
@@ -160,7 +153,6 @@ class GatewayService : LifecycleService() {
             return
         }
 
-        // Replit proxy routes /api/* to the API server, so WebSocket must be at /api/ws
         val wsUrl = serverUrl
             .replace("https://", "wss://")
             .replace("http://",  "ws://")
@@ -248,9 +240,7 @@ class GatewayService : LifecycleService() {
                     startSmsWorker()
                     startStatsReporter()
                     sendDeviceInfo()
-                    // Flush any result payloads buffered while WS was down
                     flushResultBuffer()
-                    // Also replay recently completed results from DB in case of crash
                     replayUnreportedResults()
                 }
 
@@ -261,7 +251,7 @@ class GatewayService : LifecycleService() {
                     stopSelf()
                 }
 
-                "HEARTBEAT_ACK" -> { /* server acknowledged */ }
+                "HEARTBEAT_ACK" -> { /* acknowledged */ }
 
                 "SEND_SMS" -> {
                     val number  = msg["number"]  as? String ?: return
@@ -275,7 +265,7 @@ class GatewayService : LifecycleService() {
                             message     = message
                         ))
                     }
-                    // Acknowledge receipt so the server doesn't re-queue
+                    // Acknowledge receipt immediately
                     send(mapOf("type" to "SMS_STATUS", "smsId" to smsId, "status" to "ASSIGNED"))
                 }
 
@@ -298,7 +288,9 @@ class GatewayService : LifecycleService() {
         heartbeatJob = lifecycleScope.launch {
             while (isConnected) {
                 delay(25_000)
-                val info = withContext(Dispatchers.IO) { DeviceInfoHelper.getInfo(this@GatewayService) }
+                val info = withContext(Dispatchers.IO) {
+                    DeviceInfoHelper.getInfo(this@GatewayService)
+                }
                 send(mapOf(
                     "type"    to "HEARTBEAT",
                     "battery" to info.battery,
@@ -312,14 +304,17 @@ class GatewayService : LifecycleService() {
     private fun sendDeviceInfo() {
         lifecycleScope.launch(Dispatchers.IO) {
             val info = DeviceInfoHelper.getInfo(this@GatewayService)
-            send(mapOf(
+            val payload = mutableMapOf<String, Any?>(
                 "type"           to "DEVICE_INFO",
                 "phoneModel"     to info.model,
                 "androidVersion" to info.androidVersion,
                 "simInfo"        to info.simInfo,
                 "battery"        to info.battery,
                 "signal"         to info.signal
-            ))
+            )
+            // Include phone number if available
+            info.phoneNumber?.let { payload["phoneNumber"] = it }
+            send(payload)
         }
     }
 
@@ -334,19 +329,17 @@ class GatewayService : LifecycleService() {
                     runCatching { db.pendingMessageDao().getPending() }.getOrDefault(emptyList())
                 }
 
-                if (batch.isEmpty()) {
-                    delay(2_000)
-                    continue
-                }
+                if (batch.isEmpty()) { delay(2_000); continue }
 
                 log("Processing batch of ${batch.size} messages")
                 for (msg in batch) {
                     withContext(Dispatchers.IO) {
-                        db.pendingMessageDao().updateStatus(msg.id, "SENDING",
-                            System.currentTimeMillis(), null)
+                        db.pendingMessageDao().updateStatus(
+                            msg.id, "SENDING", System.currentTimeMillis(), null
+                        )
                     }
                     dispatchSms(msg)
-                    delay(700)  // 700 ms between sends — respects carrier rate limits
+                    delay(700) // 700 ms inter-message delay — respects carrier rate limits
                 }
             }
             log("SMS worker stopped")
@@ -363,7 +356,7 @@ class GatewayService : LifecycleService() {
                 val pending = withContext(Dispatchers.IO) {
                     runCatching { db.pendingMessageDao().pendingCount() }.getOrDefault(0)
                 }
-                updateStatus("Online ✓ sent ${smsSentSession.get()} | pending $pending")
+                updateStatus("Online ✓  sent ${smsSentSession.get()} | queued $pending")
             }
         }
     }
@@ -379,22 +372,18 @@ class GatewayService : LifecycleService() {
                 SmsManager.getDefault()
             }
 
-            // The only real callback — carried by the LAST segment for multipart, or the single send.
-            // requestCode is unique per message row to avoid PendingIntent collisions.
             val sentPi = makeSentIntent(msg.id, msg.smsId, msg.id)
+            val parts  = smsManager.divideMessage(msg.message)
 
-            val parts = smsManager.divideMessage(msg.message)
             if (parts.size == 1) {
                 smsManager.sendTextMessage(msg.phoneNumber, null, msg.message, sentPi, null)
             } else {
-                // Multipart: intermediate parts get NO-OP intents (msgId = -1 → receiver ignores).
-                // Only the last part triggers the real result callback.
                 val intents = ArrayList<PendingIntent>(parts.size)
                 repeat(parts.size - 1) { idx ->
                     intents.add(makeSentIntent(
                         requestCode = msg.id * 1000 + idx,
                         smsId       = -1,
-                        msgId       = -1L       // ← receiver checks < 0 and returns early
+                        msgId       = -1L
                     ))
                 }
                 intents.add(sentPi)
@@ -415,7 +404,6 @@ class GatewayService : LifecycleService() {
         }
     }
 
-    /** Creates a PendingIntent for an SMS sent-result callback. */
     private fun makeSentIntent(requestCode: Long, smsId: Int, msgId: Long): PendingIntent =
         PendingIntent.getBroadcast(
             this,
@@ -430,7 +418,6 @@ class GatewayService : LifecycleService() {
 
     // ── Result buffer & replay ────────────────────────────────────────────────
 
-    /** Send all buffered result payloads to the server (no-op if WS is down). */
     private fun flushResultBuffer() {
         if (!isConnected) return
         synchronized(pendingResults) {
@@ -438,31 +425,23 @@ class GatewayService : LifecycleService() {
             while (iter.hasNext()) {
                 val payload = iter.next()
                 val ws = webSocket
-                if (ws != null && isConnected) {
-                    ws.send(gson.toJson(payload))
-                    iter.remove()
-                } else break
+                if (ws != null && isConnected) { ws.send(gson.toJson(payload)); iter.remove() }
+                else break
             }
         }
     }
 
-    /**
-     * On reconnect, query the DB for recently completed messages and re-send their results
-     * to the server. This covers outcomes from the previous session that were never delivered.
-     */
     private fun replayUnreportedResults() {
         lifecycleScope.launch(Dispatchers.IO) {
-            val since = System.currentTimeMillis() - 24 * 60 * 60 * 1000L // last 24 h
+            val since = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
             runCatching {
-                val completed = db.pendingMessageDao().getUnreported(since)
-                completed.forEach { m ->
-                    val payload = mapOf(
+                db.pendingMessageDao().getUnreported(since).forEach { m ->
+                    pendingResults.add(mapOf(
                         "type"   to "SMS_RESULT",
                         "smsId"  to m.smsId,
                         "status" to m.status,
                         "error"  to m.errorMessage
-                    )
-                    pendingResults.add(payload)
+                    ))
                 }
             }
             if (pendingResults.isNotEmpty()) {
@@ -474,7 +453,6 @@ class GatewayService : LifecycleService() {
 
     // ── Utilities ─────────────────────────────────────────────────────────────
 
-    /** Send to WebSocket. No-op (does not buffer) — use pendingResults for result payloads. */
     private fun send(payload: Map<String, Any?>) {
         val ws = webSocket
         if (ws != null && isConnected) ws.send(gson.toJson(payload))

@@ -4,9 +4,9 @@ import type { Server } from "http";
 import { db } from "@workspace/db";
 import {
   devicesTable, activityEventsTable, systemLogsTable,
-  smsMessagesTable, deviceLogsTable
+  smsMessagesTable, deviceLogsTable, campaignsTable
 } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import { logger } from "./lib/logger.js";
 import { getApiKey } from "./middleware/auth.js";
 
@@ -16,15 +16,13 @@ interface DeviceConnection {
   dbId: number;
   deviceName: string;
   lastHeartbeat: Date;
-  /** Set to true when this connection is intentionally replaced by a new auth */
   replaced: boolean;
 }
 
 class HydroWss {
   private server: WebSocketServer | null = null;
-  // keyed by Android hardware device ID
   private connections = new Map<string, DeviceConnection>();
-  // Dashboard browser connections that explicitly sent SUBSCRIBE — receive broadcast events
+  /** Dashboard browser sockets that sent a valid SUBSCRIBE message */
   private dashboardSockets = new Set<WebSocket>();
 
   init(httpServer: Server) {
@@ -35,7 +33,6 @@ class HydroWss {
         ?? req.socket.remoteAddress
         ?? "unknown";
 
-      // Connection state — only set once AUTH or SUBSCRIBE succeeds
       let connection: DeviceConnection | null = null;
       let subscribedAsDashboard = false;
 
@@ -43,8 +40,7 @@ class HydroWss {
         try {
           const msg = JSON.parse(raw.toString()) as Record<string, unknown>;
 
-          // Dashboard browser sends SUBSCRIBE {apiKey} to opt-in to live events.
-          // Validate the API key so only authenticated dashboard sessions can receive broadcasts.
+          // Dashboard SUBSCRIBE — validate API key before adding to broadcast set
           if (msg.type === "SUBSCRIBE") {
             const providedKey = msg.apiKey as string | undefined;
             if (!providedKey || providedKey !== getApiKey()) {
@@ -69,19 +65,14 @@ class HydroWss {
       });
 
       ws.on("close", async () => {
-        // Clean up dashboard subscription
         this.dashboardSockets.delete(ws);
-
-        if (!connection) return;
-        if (connection.replaced) return;
+        if (!connection || connection.replaced) return;
         if (this.connections.get(connection.deviceId) !== connection) return;
         this.connections.delete(connection.deviceId);
         await this.onDeviceDisconnected(connection);
       });
 
-      ws.on("error", (err) => {
-        logger.error({ err }, "WebSocket error");
-      });
+      ws.on("error", (err) => logger.error({ err }, "WebSocket error"));
     });
 
     setInterval(() => this.checkHeartbeats(), 30_000);
@@ -99,12 +90,9 @@ class HydroWss {
     await this.logWs(msg.type as string, JSON.stringify(safeMsg));
 
     switch (msg.type) {
+
       case "AUTH": {
         const token = msg.token as string;
-
-        // Authenticate by token alone — token is a 32-byte random hex and unique per device.
-        // We do NOT compare msg.deviceId against device.deviceId (the Android hardware ID)
-        // because the Android app stores and sends the numeric DB id as deviceId, not the hardware ID.
         const [device] = await db
           .select()
           .from(devicesTable)
@@ -117,12 +105,10 @@ class HydroWss {
           return null;
         }
 
-        // If an existing connection exists for this device, mark it replaced and close it
         const existing = this.connections.get(device.deviceId);
         if (existing && existing.ws !== ws) {
           existing.replaced = true;
           existing.ws.close(1000, "replaced by new connection");
-          logger.info({ deviceId: device.deviceId }, "Replaced stale connection");
         }
 
         const conn: DeviceConnection = {
@@ -153,7 +139,7 @@ class HydroWss {
         await db.update(devicesTable).set({
           lastHeartbeat: new Date(),
           battery: typeof msg.battery === "number" ? msg.battery : undefined,
-          signalStrength: typeof msg.signal === "number" ? msg.signal : undefined,
+          signalStrength: typeof msg.signal === "number" && msg.signal !== -1 ? msg.signal : undefined,
           updatedAt: new Date(),
         }).where(eq(devicesTable.id, currentConn.dbId));
         ws.send(JSON.stringify({ type: "HEARTBEAT_ACK" }));
@@ -173,6 +159,7 @@ class HydroWss {
         const error = msg.error as string | undefined;
         const success = status === "SUCCESS";
 
+        // Update the SMS message row
         await db.update(smsMessagesTable).set({
           status: success ? "SUCCESS" : "FAILED",
           errorMessage: error ?? null,
@@ -180,33 +167,79 @@ class HydroWss {
           ...(success ? { sentAt: new Date() } : {}),
         }).where(eq(smsMessagesTable.id, smsId));
 
+        // Increment device SMS count
+        await db.update(devicesTable).set({
+          smsCount: sql`${devicesTable.smsCount} + 1`,
+          updatedAt: new Date(),
+        }).where(eq(devicesTable.id, currentConn.dbId));
+
+        // Update campaign counters
+        const [smsRow] = await db
+          .select({ campaignId: smsMessagesTable.campaignId })
+          .from(smsMessagesTable)
+          .where(eq(smsMessagesTable.id, smsId))
+          .limit(1);
+
+        if (smsRow?.campaignId) {
+          const campaignId = smsRow.campaignId;
+          if (success) {
+            await db.update(campaignsTable).set({
+              sentCount: sql`${campaignsTable.sentCount} + 1`,
+              pendingCount: sql`GREATEST(${campaignsTable.pendingCount} - 1, 0)`,
+              updatedAt: new Date(),
+            }).where(eq(campaignsTable.id, campaignId));
+          } else {
+            await db.update(campaignsTable).set({
+              failedCount: sql`${campaignsTable.failedCount} + 1`,
+              pendingCount: sql`GREATEST(${campaignsTable.pendingCount} - 1, 0)`,
+              updatedAt: new Date(),
+            }).where(eq(campaignsTable.id, campaignId));
+          }
+
+          // Check if campaign is now fully completed
+          await this.checkCampaignComplete(campaignId);
+        }
+
         await db.insert(activityEventsTable).values({
           type: success ? "sms_sent" : "sms_failed",
           message: success
             ? `SMS delivered by ${currentConn.deviceName}`
-            : `SMS failed on ${currentConn.deviceName}: ${error ?? "unknown error"}`,
+            : `SMS failed on ${currentConn.deviceName}: ${error ?? "unknown"}`,
           deviceId: currentConn.dbId,
           deviceName: currentConn.deviceName,
           metadata: JSON.stringify({ smsId, status }),
         });
 
         await this.logDevice(currentConn.dbId, success ? "info" : "warn",
-          `SMS ${smsId} ${success ? "delivered" : "failed"}: ${error ?? "ok"}`);
+          `SMS #${smsId} ${success ? "delivered" : "failed"}: ${error ?? "ok"}`);
 
         this.broadcastToDashboard({ type: "sms_result", deviceId: currentConn.dbId, smsId, status });
         return undefined;
       }
 
+      case "SMS_STATUS": {
+        // Android acknowledges receipt of a SEND_SMS command
+        if (!currentConn) return undefined;
+        const smsId = msg.smsId as number;
+        const status = msg.status as string; // typically "ASSIGNED"
+        if (smsId && status) {
+          await db.update(smsMessagesTable)
+            .set({ status } as any)
+            .where(eq(smsMessagesTable.id, smsId));
+        }
+        return undefined;
+      }
+
       case "DEVICE_INFO": {
         if (!currentConn) return undefined;
-        await db.update(devicesTable).set({
-          phoneModel: typeof msg.phoneModel === "string" ? msg.phoneModel : undefined,
-          androidVersion: typeof msg.androidVersion === "string" ? msg.androidVersion : undefined,
-          simInfo: typeof msg.simInfo === "string" ? msg.simInfo : undefined,
-          battery: typeof msg.battery === "number" ? msg.battery : undefined,
-          signalStrength: typeof msg.signal === "number" ? msg.signal : undefined,
-          updatedAt: new Date(),
-        }).where(eq(devicesTable.id, currentConn.dbId));
+        const updates: Record<string, unknown> = { updatedAt: new Date() };
+        if (typeof msg.phoneModel === "string")     updates.phoneModel = msg.phoneModel;
+        if (typeof msg.androidVersion === "string") updates.androidVersion = msg.androidVersion;
+        if (typeof msg.simInfo === "string")        updates.simInfo = msg.simInfo;
+        if (typeof msg.battery === "number")        updates.battery = msg.battery;
+        if (typeof msg.signal === "number" && msg.signal !== -1) updates.signalStrength = msg.signal;
+        if (typeof msg.phoneNumber === "string" && msg.phoneNumber) updates.phoneNumber = msg.phoneNumber;
+        await db.update(devicesTable).set(updates as any).where(eq(devicesTable.id, currentConn.dbId));
         this.broadcastToDashboard({ type: "device_updated", deviceId: currentConn.dbId });
         return undefined;
       }
@@ -214,6 +247,47 @@ class HydroWss {
       default:
         logger.warn({ type: msg.type }, "Unknown WS message type");
         return undefined;
+    }
+  }
+
+  private async checkCampaignComplete(campaignId: number) {
+    try {
+      const [campaign] = await db
+        .select()
+        .from(campaignsTable)
+        .where(eq(campaignsTable.id, campaignId))
+        .limit(1);
+
+      if (!campaign || campaign.status !== "running") return;
+
+      // Count remaining unfinished messages
+      const [{ remaining }] = await db
+        .select({ remaining: sql<number>`count(*)::int` })
+        .from(smsMessagesTable)
+        .where(and(
+          eq(smsMessagesTable.campaignId, campaignId),
+          inArray(smsMessagesTable.status, ["QUEUED", "SENT_TO_DEVICE", "SENDING", "ASSIGNED"])
+        ));
+
+      if ((remaining ?? 0) === 0) {
+        await db.update(campaignsTable).set({
+          status: "completed",
+          completedAt: new Date(),
+          pendingCount: 0,
+          updatedAt: new Date(),
+        }).where(eq(campaignsTable.id, campaignId));
+
+        await db.insert(activityEventsTable).values({
+          type: "campaign_completed",
+          message: `Campaign "${campaign.name}" completed`,
+          campaignId: campaign.id,
+          campaignName: campaign.name,
+        });
+
+        this.broadcastToDashboard({ type: "campaign_completed", campaignId });
+      }
+    } catch (err) {
+      logger.error({ err }, "checkCampaignComplete error");
     }
   }
 
@@ -225,11 +299,7 @@ class HydroWss {
       deviceName: conn.deviceName,
     });
     logger.info({ deviceId: conn.deviceId }, "Device connected");
-    this.broadcastToDashboard({
-      type: "device_connected",
-      deviceId: conn.dbId,
-      deviceName: conn.deviceName,
-    });
+    this.broadcastToDashboard({ type: "device_connected", deviceId: conn.dbId, deviceName: conn.deviceName });
   }
 
   private async onDeviceDisconnected(conn: DeviceConnection) {
@@ -242,26 +312,18 @@ class HydroWss {
       deviceName: conn.deviceName,
     });
     logger.info({ deviceId: conn.deviceId }, "Device disconnected");
-    this.broadcastToDashboard({
-      type: "device_disconnected",
-      deviceId: conn.dbId,
-      deviceName: conn.deviceName,
-    });
+    this.broadcastToDashboard({ type: "device_disconnected", deviceId: conn.dbId, deviceName: conn.deviceName });
   }
 
   private async checkHeartbeats() {
     const now = new Date();
-    const stale: DeviceConnection[] = [];
     for (const conn of this.connections.values()) {
       if (now.getTime() - conn.lastHeartbeat.getTime() > 90_000) {
-        stale.push(conn);
+        conn.replaced = true;
+        conn.ws.terminate();
+        this.connections.delete(conn.deviceId);
+        await this.onDeviceDisconnected(conn);
       }
-    }
-    for (const conn of stale) {
-      conn.replaced = true;
-      conn.ws.terminate();
-      this.connections.delete(conn.deviceId);
-      await this.onDeviceDisconnected(conn);
     }
   }
 
@@ -291,17 +353,13 @@ class HydroWss {
     }
   }
 
-  getConnectedCount(): number {
-    return this.connections.size;
-  }
+  getConnectedCount() { return this.connections.size; }
 
   private async logWs(type: string, data: string) {
     try {
       await db.insert(systemLogsTable).values({
-        level: "info",
-        category: "websocket",
-        message: `WS: ${type}`,
-        data: data.substring(0, 500),
+        level: "info", category: "websocket",
+        message: `WS: ${type}`, data: data.substring(0, 500),
       });
     } catch (_) { /* non-fatal */ }
   }

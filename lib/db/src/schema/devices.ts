@@ -10,6 +10,7 @@ export const devicesTable = pgTable("devices", {
   battery: integer("battery"),
   androidVersion: text("android_version"),
   phoneModel: text("phone_model"),
+  phoneNumber: text("phone_number"),   // SIM phone number if readable
   simInfo: text("sim_info"),
   signalStrength: integer("signal_strength"),
   lastHeartbeat: timestamp("last_heartbeat"),

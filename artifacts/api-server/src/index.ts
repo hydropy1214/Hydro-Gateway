@@ -3,6 +3,7 @@ import app from "./app.js";
 import { logger } from "./lib/logger.js";
 import { wss } from "./websocket.js";
 import { initApiKey } from "./middleware/auth.js";
+import { startCampaignWorker } from "./workers/campaignWorker.js";
 
 const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
@@ -10,12 +11,9 @@ if (!rawPort) throw new Error("PORT environment variable is required but was not
 const port = Number(rawPort);
 if (Number.isNaN(port) || port <= 0) throw new Error(`Invalid PORT value: "${rawPort}"`);
 
-// Initialise API key before accepting connections
 initApiKey();
 
 const httpServer = http.createServer(app);
-
-// Attach WebSocket server to the HTTP server
 wss.init(httpServer);
 
 httpServer.listen(port, (err?: Error) => {
@@ -24,4 +22,5 @@ httpServer.listen(port, (err?: Error) => {
     process.exit(1);
   }
   logger.info({ port }, "HYDROPY server listening");
+  startCampaignWorker();
 });
