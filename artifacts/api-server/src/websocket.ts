@@ -8,6 +8,7 @@ import {
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./lib/logger.js";
+import { getApiKey } from "./middleware/auth.js";
 
 interface DeviceConnection {
   ws: WebSocket;
@@ -21,11 +22,12 @@ interface DeviceConnection {
 
 class HydroWss {
   private server: WebSocketServer | null = null;
-  // keyed by device string ID (from Android)
+  // keyed by Android hardware device ID
   private connections = new Map<string, DeviceConnection>();
+  // Dashboard browser connections that explicitly sent SUBSCRIBE — receive broadcast events
+  private dashboardSockets = new Set<WebSocket>();
 
   init(httpServer: Server) {
-    // Path must include the /api prefix because Replit's proxy routes /api/* → this server
     this.server = new WebSocketServer({ server: httpServer, path: "/api/ws" });
 
     this.server.on("connection", (ws: WebSocket, req: IncomingMessage) => {
@@ -33,12 +35,31 @@ class HydroWss {
         ?? req.socket.remoteAddress
         ?? "unknown";
 
-      // Each socket has its own connection reference, set on AUTH success
+      // Connection state — only set once AUTH or SUBSCRIBE succeeds
       let connection: DeviceConnection | null = null;
+      let subscribedAsDashboard = false;
 
       ws.on("message", async (raw) => {
         try {
           const msg = JSON.parse(raw.toString()) as Record<string, unknown>;
+
+          // Dashboard browser sends SUBSCRIBE {apiKey} to opt-in to live events.
+          // Validate the API key so only authenticated dashboard sessions can receive broadcasts.
+          if (msg.type === "SUBSCRIBE") {
+            const providedKey = msg.apiKey as string | undefined;
+            if (!providedKey || providedKey !== getApiKey()) {
+              ws.send(JSON.stringify({ type: "SUBSCRIBE_DENIED", reason: "Invalid API key" }));
+              ws.close(1008, "Unauthorized");
+              return;
+            }
+            if (!subscribedAsDashboard && !connection) {
+              subscribedAsDashboard = true;
+              this.dashboardSockets.add(ws);
+            }
+            ws.send(JSON.stringify({ type: "SUBSCRIBED" }));
+            return;
+          }
+
           const newConn = await this.handleMessage(ws, msg, ip, connection);
           if (newConn !== undefined) connection = newConn;
         } catch (err) {
@@ -48,10 +69,11 @@ class HydroWss {
       });
 
       ws.on("close", async () => {
+        // Clean up dashboard subscription
+        this.dashboardSockets.delete(ws);
+
         if (!connection) return;
-        // Skip disconnect logic if this connection was replaced by a new auth
         if (connection.replaced) return;
-        // Skip if the map now points to a different connection (extra safety)
         if (this.connections.get(connection.deviceId) !== connection) return;
         this.connections.delete(connection.deviceId);
         await this.onDeviceDisconnected(connection);
@@ -66,16 +88,12 @@ class HydroWss {
     logger.info("WebSocket server initialized at /api/ws");
   }
 
-  /**
-   * Returns the (potentially updated) connection reference, or undefined if unchanged.
-   */
   private async handleMessage(
     ws: WebSocket,
     msg: Record<string, unknown>,
     ip: string,
     currentConn: DeviceConnection | null
   ): Promise<DeviceConnection | null | undefined> {
-    // Redact sensitive fields before logging
     const safeMsg = { ...msg };
     if (safeMsg.token) safeMsg.token = "[REDACTED]";
     await this.logWs(msg.type as string, JSON.stringify(safeMsg));
@@ -83,15 +101,17 @@ class HydroWss {
     switch (msg.type) {
       case "AUTH": {
         const token = msg.token as string;
-        const deviceId = msg.deviceId as string;
 
+        // Authenticate by token alone — token is a 32-byte random hex and unique per device.
+        // We do NOT compare msg.deviceId against device.deviceId (the Android hardware ID)
+        // because the Android app stores and sends the numeric DB id as deviceId, not the hardware ID.
         const [device] = await db
           .select()
           .from(devicesTable)
           .where(eq(devicesTable.authToken, token))
           .limit(1);
 
-        if (!device || device.deviceId !== deviceId) {
+        if (!device) {
           ws.send(JSON.stringify({ type: "AUTH_FAILED", message: "Invalid credentials" }));
           ws.close(1008, "AUTH_FAILED");
           return null;
@@ -137,6 +157,12 @@ class HydroWss {
           updatedAt: new Date(),
         }).where(eq(devicesTable.id, currentConn.dbId));
         ws.send(JSON.stringify({ type: "HEARTBEAT_ACK" }));
+        this.broadcastToDashboard({
+          type: "device_telemetry",
+          deviceId: currentConn.dbId,
+          battery: msg.battery,
+          signal: msg.signal,
+        });
         return undefined;
       }
 
@@ -166,6 +192,8 @@ class HydroWss {
 
         await this.logDevice(currentConn.dbId, success ? "info" : "warn",
           `SMS ${smsId} ${success ? "delivered" : "failed"}: ${error ?? "ok"}`);
+
+        this.broadcastToDashboard({ type: "sms_result", deviceId: currentConn.dbId, smsId, status });
         return undefined;
       }
 
@@ -179,6 +207,7 @@ class HydroWss {
           signalStrength: typeof msg.signal === "number" ? msg.signal : undefined,
           updatedAt: new Date(),
         }).where(eq(devicesTable.id, currentConn.dbId));
+        this.broadcastToDashboard({ type: "device_updated", deviceId: currentConn.dbId });
         return undefined;
       }
 
@@ -196,6 +225,11 @@ class HydroWss {
       deviceName: conn.deviceName,
     });
     logger.info({ deviceId: conn.deviceId }, "Device connected");
+    this.broadcastToDashboard({
+      type: "device_connected",
+      deviceId: conn.dbId,
+      deviceName: conn.deviceName,
+    });
   }
 
   private async onDeviceDisconnected(conn: DeviceConnection) {
@@ -208,6 +242,11 @@ class HydroWss {
       deviceName: conn.deviceName,
     });
     logger.info({ deviceId: conn.deviceId }, "Device disconnected");
+    this.broadcastToDashboard({
+      type: "device_disconnected",
+      deviceId: conn.dbId,
+      deviceName: conn.deviceName,
+    });
   }
 
   private async checkHeartbeats() {
@@ -219,7 +258,6 @@ class HydroWss {
       }
     }
     for (const conn of stale) {
-      // Mark replaced so close handler doesn't double-fire disconnect
       conn.replaced = true;
       conn.ws.terminate();
       this.connections.delete(conn.deviceId);
@@ -227,10 +265,6 @@ class HydroWss {
     }
   }
 
-  /**
-   * Sends a message to a connected device.
-   * Returns true if the message was sent, false if device is not connected.
-   */
   sendToDevice(deviceId: string, payload: Record<string, unknown>): boolean {
     const conn = this.connections.get(deviceId);
     if (conn && conn.ws.readyState === WebSocket.OPEN) {
@@ -244,6 +278,16 @@ class HydroWss {
     const data = JSON.stringify(payload);
     for (const conn of this.connections.values()) {
       if (conn.ws.readyState === WebSocket.OPEN) conn.ws.send(data);
+    }
+  }
+
+  private broadcastToDashboard(payload: Record<string, unknown>) {
+    if (this.dashboardSockets.size === 0) return;
+    const data = JSON.stringify(payload);
+    for (const ws of this.dashboardSockets) {
+      if (ws.readyState === WebSocket.OPEN) {
+        try { ws.send(data); } catch (_) { /* non-fatal */ }
+      }
     }
   }
 

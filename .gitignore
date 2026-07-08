@@ -47,3 +47,5 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+android-gateway/app/build/
+android-gateway/.gradle/

@@ -8,7 +8,7 @@ import { fileURLToPath } from "url";
 
 const router = Router();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// apk-storage lives alongside the compiled output (dist/ → parent is artifacts/api-server/)
+// apk-storage is placed alongside the compiled dist/ output; resolve one level up
 const APK_DIR = path.resolve(__dirname, "..", "apk-storage");
 if (!fs.existsSync(APK_DIR)) fs.mkdirSync(APK_DIR, { recursive: true });
 const PREBUILT_APK = path.join(APK_DIR, "HYDROPY-Gateway.apk");
@@ -20,18 +20,14 @@ router.get("/versions", async (req, res) => {
       .select()
       .from(appVersionsTable)
       .orderBy(desc(appVersionsTable.createdAt));
-
-    res.json(versions.map(v => ({
-      ...v,
-      createdAt: v.createdAt.toISOString(),
-    })));
+    res.json(versions.map(v => ({ ...v, createdAt: v.createdAt.toISOString() })));
   } catch (err) {
     req.log.error({ err }, "Failed to list APK versions");
     res.status(500).json({ error: "Failed to list APK versions" });
   }
 });
 
-// Get latest APK
+// Get latest APK metadata
 router.get("/latest", async (req, res) => {
   try {
     const [latest] = await db
@@ -41,10 +37,8 @@ router.get("/latest", async (req, res) => {
       .limit(1);
 
     if (!latest) {
-      // No DB record yet — serve info derived from the pre-built APK on disk
-      const fileSize = fs.existsSync(PREBUILT_APK)
-        ? fs.statSync(PREBUILT_APK).size
-        : null;
+      // No DB record — derive info from the pre-built APK on disk
+      const fileSize = fs.existsSync(PREBUILT_APK) ? fs.statSync(PREBUILT_APK).size : null;
       const fileMtime = fs.existsSync(PREBUILT_APK)
         ? fs.statSync(PREBUILT_APK).mtime.toISOString()
         : new Date().toISOString();
@@ -55,7 +49,15 @@ router.get("/latest", async (req, res) => {
         size: fileSize,
         isLatest: true,
         downloadUrl: "/api/apk/latest/download",
-        changelog: "• Fixed pairing WebSocket path (/api/ws)\n• Permissions requested at app launch\n• Bulk SMS worker with carrier rate limiting\n• SMS result buffering & replay on reconnect\n• Orphaned SENDING row recovery on restart\n• Multipart SMS single-callback fix\n• Exponential reconnect backoff",
+        changelog:
+          "• WebSocket authentication fix (token-based, no deviceId mismatch)\n" +
+          "• Dashboard real-time device status via WebSocket broadcasts\n" +
+          "• Bulk SMS worker with 700 ms carrier rate limiting\n" +
+          "• SMS result buffering & replay on reconnect\n" +
+          "• Orphaned SENDING row recovery on service restart\n" +
+          "• Multipart SMS single-callback fix\n" +
+          "• Exponential reconnect backoff (3 s → 30 s)\n" +
+          "• Auto-start on phone reboot via BootReceiver",
         createdAt: fileMtime,
       });
       return;
@@ -68,17 +70,17 @@ router.get("/latest", async (req, res) => {
   }
 });
 
-// Download latest APK (convenience alias used by the dashboard)
+// Download latest APK — public, no auth required
 router.get("/latest/download", (_req, res) => {
   if (fs.existsSync(PREBUILT_APK)) {
     res.setHeader("Content-Disposition", 'attachment; filename="HYDROPY-Gateway.apk"');
     res.setHeader("Content-Type", "application/vnd.android.package-archive");
     return res.sendFile(PREBUILT_APK);
   }
-  res.status(404).json({ error: "APK file not found on server." });
+  res.status(404).json({ error: "APK not yet built. See README for build instructions." });
 });
 
-// Download APK by id (id=0 → pre-built release)
+// Download APK by id — public, no auth required
 router.get("/:id/download", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -99,11 +101,15 @@ router.get("/:id/download", async (req, res) => {
       .where(eq(appVersionsTable.id, id))
       .limit(1);
 
-    if (!version) { res.status(404).json({ error: "APK version not found" }); return; }
+    if (!version) {
+      res.status(404).json({ error: "APK version not found" });
+      return;
+    }
 
     const filePath = version.filePath ?? path.join(APK_DIR, version.filename);
     if (!fs.existsSync(filePath)) {
-      res.status(404).json({ error: "APK file not found on server" }); return;
+      res.status(404).json({ error: "APK file not found on server" });
+      return;
     }
 
     res.setHeader("Content-Disposition", `attachment; filename="${version.filename}"`);

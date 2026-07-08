@@ -1,1 +1,2 @@
 - [HYDROPY platform](hydropy-platform.md) — full SMS gateway: Express/WS api-server, React NOC dashboard, Kotlin Android app, Drizzle/PG schema
+- [HYDROPY WebSocket auth + APK build](hydropy-ws-auth.md) — AUTH token-only fix, dashboard SUBSCRIBE pattern, APK build steps for Replit
